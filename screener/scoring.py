@@ -376,7 +376,6 @@ def analyze_symbol(
             dist_to_pivot = (pivot - price) / pivot * 100
 
     confluence = len(trigger_hits) >= 2 or (len(trigger_hits) >= 1 and len(support_hits) >= 1)
-    elite_trigger = bool(trigger_hits) and max(h.score for h in trigger_hits) >= 70
     near_pivot = dist_to_pivot is not None and -0.5 <= dist_to_pivot <= near
     # Already extended through pivot by >1.5% → not a fresh entry
     not_extended = dist_to_pivot is None or dist_to_pivot >= -1.5
