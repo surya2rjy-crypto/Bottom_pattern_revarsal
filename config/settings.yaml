@@ -25,10 +25,10 @@ base:
 
 entry:
   # Ready-to-Entry: near pivot / support reclaim / breakout
-  near_pivot_pct: 3.0            # within 3% of pattern pivot
-  ready_min_score: 75            # only high-conviction on page 1
-  forming_min_score: 58
-  watchlist_min_score: 45
+  near_pivot_pct: 2.5            # within 2.5% of pattern pivot
+  ready_min_score: 80            # only high-conviction on page 1
+  forming_min_score: 60
+  watchlist_min_score: 48
 
 scoring:
   weights:

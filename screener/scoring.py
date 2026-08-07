@@ -351,28 +351,54 @@ def analyze_symbol(
     watch_min = float(cfg["entry"]["watchlist_min_score"])
     near = float(cfg["entry"]["near_pivot_pct"])
 
-    # High-probability Ready gate: confluence OR elite single pattern,
-    # constructive volume, and proximity to a defined pivot.
-    confluence = len(patterns) >= 2
-    elite_pattern = pattern_s >= 72
-    near_pivot = dist_to_pivot is not None and dist_to_pivot <= near + 0.5
-    # If already through pivot (BREAKOUT), require volume participation
+    # Prefer classical trigger patterns for Ready (not support-zone alone)
+    trigger_names = {
+        "Rounded Bottom",
+        "VCP Base",
+        "Double Bottom",
+        "Trendline Break",
+        "Wyckoff Spring",
+    }
+    trigger_hits = [h for h in patterns if h.name in trigger_names]
+    support_hits = [h for h in patterns if h.name == "Strong Support Zone"]
+
+    # Use best trigger pattern's pivot/status when available
+    if trigger_hits:
+        th = max(trigger_hits, key=lambda h: h.score)
+        # Prefer actionable status among triggers
+        actionable = [h for h in trigger_hits if h.status in ("NEAR_ENTRY", "BREAKOUT")]
+        if actionable:
+            th = max(actionable, key=lambda h: h.score)
+        pivot = th.pivot
+        support = th.support or support
+        pstatus = th.status
+        if pivot and pivot > 0:
+            dist_to_pivot = (pivot - price) / pivot * 100
+
+    confluence = len(trigger_hits) >= 2 or (len(trigger_hits) >= 1 and len(support_hits) >= 1)
+    elite_trigger = bool(trigger_hits) and max(h.score for h in trigger_hits) >= 70
+    near_pivot = dist_to_pivot is not None and -0.5 <= dist_to_pivot <= near
+    # Already extended through pivot by >1.5% → not a fresh entry
+    not_extended = dist_to_pivot is None or dist_to_pivot >= -1.5
+
     breakout_ok = True
     if pstatus == "BREAKOUT":
         v50 = float(df["VOL_SMA50"].iloc[-1] or 1)
-        breakout_ok = float(df["Volume"].iloc[-1]) >= v50 * 1.2
+        breakout_ok = float(df["Volume"].iloc[-1]) >= v50 * 1.25
 
     ready = (
         total_score >= ready_min
-        and patterns
+        and bool(trigger_hits)
         and pstatus in ("NEAR_ENTRY", "BREAKOUT")
         and near_pivot
-        and pattern_s >= 65
-        and vol_s >= 50
-        and base_s >= 50
-        and (confluence or elite_pattern)
+        and not_extended
+        and pattern_s >= 70
+        and vol_s >= 55
+        and base_s >= 55
+        and mom_s >= 48
+        and confluence  # require trigger + support OR 2 triggers
         and breakout_ok
-        and corr_s >= 55
+        and corr_s >= 65
     )
 
     if ready:

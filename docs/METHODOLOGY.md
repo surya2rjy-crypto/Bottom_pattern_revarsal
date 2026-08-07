@@ -204,9 +204,9 @@ Default weights (`config/settings.yaml`):
 
 | Bucket | Rule (defaults) | Excel sheet |
 |--------|-----------------|-------------|
-| **READY_ENTRY** | Score ≥ 72 **and** pattern NEAR_ENTRY/BREAKOUT **and** within ~3% of pivot **and** pattern/volume quality floors | **Sheet 1 only** |
-| FORMING | Score ≥ 55 with recognizable pattern | Sheet 2 |
-| WATCHLIST | Score ≥ 40 | Sheet 3 |
+| **READY_ENTRY** | Score ≥ 80 **and** classical trigger pattern NEAR_ENTRY/BREAKOUT **and** within ~2.5% of pivot **and** confluence (2 triggers or trigger+support zone) **and** volume/base/momentum floors | **Sheet 1 only** |
+| FORMING | Score ≥ 60 with recognizable pattern | Sheet 2 |
+| WATCHLIST | Score ≥ 48 | Sheet 3 |
 | REJECT | Below thresholds / failed gates | Not exported as primary ideas |
 
 ETFs use the **same logic**, also split onto ETF-specific sheets.

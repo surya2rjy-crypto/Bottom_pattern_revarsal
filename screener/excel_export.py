@@ -170,7 +170,7 @@ def _write_methodology_sheet(wb: Workbook) -> None:
         ("GATE 7 — RELATIVE STRENGTH", "3m/6m performance vs Nifty BeES benchmark — prefer names not lagging badly while basing."),
         ("", ""),
         ("SCORE", "Weighted blend of Correction, Base, Pattern, Volume, Momentum, Support Zone, RS. 0–100."),
-        ("READY TO ENTRY (Sheet 1)", "Score ≥ configured ready threshold (default 72) AND pattern status NEAR_ENTRY/BREAKOUT AND within ~3% of pivot AND solid pattern+volume scores. These are the only names on page 1."),
+        ("READY TO ENTRY (Sheet 1)", "Score ≥ 80 AND classical trigger pattern (VCP/Rounded/Double Bottom/Trendline/Spring) in NEAR_ENTRY/BREAKOUT status AND within ~2.5% of pivot AND confluence with support-zone or second trigger AND solid volume/base/momentum floors. These are the only names on page 1."),
         ("FORMING BASES", "Good structure building, but not yet at the entry trigger."),
         ("WATCHLIST", "Early / partial signals — monitor, do not treat as entries."),
         ("ETF sheets", "Same logic applied separately so ETFs do not crowd stock ideas."),

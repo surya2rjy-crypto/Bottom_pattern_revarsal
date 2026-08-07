@@ -46,7 +46,7 @@ def detect_support_zone_reversal(
         zone_level = float(np.mean(lows[members]))
         zones.append({"level": zone_level, "touches": len(members), "members": members})
 
-    # Keep zones with >= 2 touches
+    # Keep zones with >= 3 touches (stronger memory) or 2 with big bounces
     zones = [z for z in zones if z["touches"] >= 2]
     if not zones:
         return None
@@ -76,8 +76,11 @@ def detect_support_zone_reversal(
         if not bounce_scores:
             continue
         avg_bounce = float(np.mean(bounce_scores))
-        strong_reversals = sum(1 for b in bounce_scores if b >= max(4.0, (atr / level) * 100 * 2))
-        if strong_reversals < 1 and avg_bounce < 4:
+        strong_reversals = sum(1 for b in bounce_scores if b >= max(5.0, (atr / level) * 100 * 2.5))
+        # Require evidence of prior strong reversal at this zone
+        if strong_reversals < 1 or avg_bounce < 5:
+            continue
+        if z["touches"] < 3 and strong_reversals < 2:
             continue
 
         # Current distance to zone
