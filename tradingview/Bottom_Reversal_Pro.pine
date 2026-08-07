@@ -10,8 +10,10 @@ indicator(
      shorttitle           = "BR Pro",
      overlay              = true,
      max_bars_back        = 500,
-     max_labels_count     = 100,
-     max_lines_count      = 50,
+     max_labels_count     = 50,
+     max_lines_count      = 120,
+     max_boxes_count      = 20,
+     max_polylines_count  = 10,
      explicit_plot_zorder = true)
 
 // ─── Inputs ────────────────────────────────────────────────────────────────
@@ -40,11 +42,12 @@ wZone = input.int(12, "Weight: Support Zone", minval=0, maxval=40, group=grpScor
 wRS   = input.int(7,  "Weight: Relative Strength", minval=0, maxval=40, group=grpScore)
 
 grpVis = "5) Display"
-showTable   = input.bool(true, "Show score dashboard", group=grpVis)
-showPivot   = input.bool(true, "Show pivot / support lines", group=grpVis)
-showSignals = input.bool(true, "Show Ready / Forming markers", group=grpVis)
-showBg      = input.bool(true, "Highlight Ready background", group=grpVis)
-tablePos    = input.string("Top Right", "Table position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=grpVis)
+showTable     = input.bool(true, "Show score dashboard", group=grpVis)
+showPatterns  = input.bool(true, "Draw detected patterns on chart", group=grpVis)
+showAllPats   = input.bool(true, "Draw all active patterns (off = primary only)", group=grpVis)
+showSwingDots = input.bool(true, "Mark swing highs/lows used by patterns", group=grpVis)
+showReadyMark = input.bool(false, "Show READY marker (optional)", group=grpVis)
+tablePos      = input.string("Top Right", "Table position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=grpVis)
 
 grpAlert = "6) Alerts"
 alertOnReady = input.bool(true, "Alert when Ready-To-Entry", group=grpAlert)
@@ -173,6 +176,7 @@ minLow20 = lo20
 springBar = ta.lowestbars(low, 20)
 bounceHi25 = ta.highest(high, 25)
 springVolClimax = ta.highest(volume, 20) > vol50 * 1.3 and springBar <= 5
+troughBars90 = ta.lowestbars(low, 90)  // for rounded-bottom drawing
 
 // ─── Swing pivots (bounded arrays, no per-bar new arrays) ───────────────────
 ph = ta.pivothigh(high, swingLen, swingLen)
@@ -549,20 +553,181 @@ isForming = not isReady and totalScore >= formingMin and bestScore >= 52 and inC
 isWatch = not isReady and not isForming and totalScore >= 48 and inCorrBand
 statusText = isReady ? "READY TO ENTRY" : isForming ? "FORMING BASE" : isWatch ? "WATCHLIST" : inCorrBand ? "QUALIFYING..." : "NO SETUP"
 
-// ─── Plots ──────────────────────────────────────────────────────────────────
+// ─── Hidden plots (screener / alerts) ───────────────────────────────────────
 plot(totalScore, title="BR Score", display=display.none)
 plot(isReady ? 1 : 0, title="BR Ready Flag", display=display.none)
 plot(isForming ? 1 : 0, title="BR Forming Flag", display=display.none)
 plot(pctFromHigh, title="BR % from 52W High", display=display.none)
 
-plot(showPivot and not na(usePivot) ? usePivot : na, "Pivot", color=color.new(#00897B, 0), style=plot.style_linebr, linewidth=2)
-plot(showPivot and not na(useSupport) ? useSupport : na, "Support", color=color.new(#C62828, 0), style=plot.style_linebr, linewidth=1)
+// Optional READY marker only (no background fill, no S/R lines)
+plotshape(showReadyMark and isReady and (not isReady[1] or barstate.islast), title="Ready", style=shape.labelup, location=location.belowbar, color=color.new(#2E7D32, 0), text="READY", textcolor=color.white, size=size.tiny)
 
-bgcolor(showBg and isReady ? color.new(color.green, 90) : showBg and isForming ? color.new(color.orange, 93) : na)
+// ─── Pattern drawing helpers (optimized: rebuild only on last bar) ──────────
+var line[]     patLines  = array.new_line()
+var label[]    patLabels = array.new_label()
+var box[]      patBoxes  = array.new_box()
+var polyline[] patPoly   = array.new_polyline()
 
-plotshape(showSignals and isReady and (not isReady[1] or barstate.islast), title="Ready", style=shape.labelup, location=location.belowbar, color=color.new(#2E7D32, 0), text="READY", textcolor=color.white, size=size.small)
-plotshape(showSignals and isForming and not isReady and barstate.islast, title="Forming", style=shape.circle, location=location.belowbar, color=color.new(#EF6C00, 0), size=size.tiny)
-plotshape(showSignals and patternStatus == "BREAKOUT" and inCorrBand and hasTrigger, title="Breakout", style=shape.triangleup, location=location.belowbar, color=color.new(#76FF03, 0), size=size.small)
+f_clear_drawings() =>
+    if array.size(patLines) > 0
+        for i = 0 to array.size(patLines) - 1
+            line.delete(array.get(patLines, i))
+        array.clear(patLines)
+    if array.size(patLabels) > 0
+        for i = 0 to array.size(patLabels) - 1
+            label.delete(array.get(patLabels, i))
+        array.clear(patLabels)
+    if array.size(patBoxes) > 0
+        for i = 0 to array.size(patBoxes) - 1
+            box.delete(array.get(patBoxes, i))
+        array.clear(patBoxes)
+    if array.size(patPoly) > 0
+        for i = 0 to array.size(patPoly) - 1
+            polyline.delete(array.get(patPoly, i))
+        array.clear(patPoly)
+
+f_add_line(x1, y1, x2, y2, col, sty, w) =>
+    ln = line.new(x1, y1, x2, y2, xloc=xloc.bar_index, extend=extend.none, color=col, style=sty, width=w)
+    array.push(patLines, ln)
+    ln
+
+f_add_label(x, y, txt, col, style, size_) =>
+    lb = label.new(x, y, txt, xloc=xloc.bar_index, yloc=yloc.price, style=style, color=color.new(col, 100), textcolor=col, size=size_)
+    array.push(patLabels, lb)
+    lb
+
+f_add_box(x1, y1, x2, y2, borderCol, bgCol) =>
+    bx = box.new(x1, y1, x2, y2, xloc=xloc.bar_index, border_color=borderCol, bgcolor=bgCol, border_width=1)
+    array.push(patBoxes, bx)
+    bx
+
+f_draw_double_bottom() =>
+    // W: L1 -> neck mid -> L2, plus neckline
+    if not na(lb1) and not na(lb0) and not na(sl1) and not na(sl0) and not na(dbPivot)
+        midBar = int(math.round((lb1 + lb0) * 0.5))
+        col = #1565C0
+        f_add_line(lb1, sl1, midBar, dbPivot, col, line.style_solid, 2)
+        f_add_line(midBar, dbPivot, lb0, sl0, col, line.style_solid, 2)
+        f_add_line(lb1, dbPivot, lb0, dbPivot, col, line.style_dashed, 1)
+        f_add_label(lb1, sl1, "L1", col, label.style_label_up, size.tiny)
+        f_add_label(lb0, sl0, "L2", col, label.style_label_up, size.tiny)
+        f_add_label(midBar, dbPivot, "DB neck", col, label.style_label_down, size.tiny)
+
+f_draw_vcp() =>
+    // Contracting swing zigzag: H2-L2-H1-L1-H0
+    col = #6A1B9A
+    if not na(sb2) and not na(sh2) and not na(lb2) and not na(sl2)
+        f_add_line(sb2, sh2, lb2, sl2, col, line.style_solid, 2)
+    if not na(lb2) and not na(sl2) and not na(sb1) and not na(sh1)
+        f_add_line(lb2, sl2, sb1, sh1, col, line.style_solid, 2)
+    if not na(sb1) and not na(sh1) and not na(lb1) and not na(sl1)
+        f_add_line(sb1, sh1, lb1, sl1, col, line.style_solid, 2)
+    if not na(lb1) and not na(sl1) and not na(sb0) and not na(sh0)
+        f_add_line(lb1, sl1, sb0, sh0, col, line.style_solid, 2)
+    if not na(sb0) and not na(sh0) and not na(lb0) and not na(sl0)
+        f_add_line(sb0, sh0, lb0, sl0, col, line.style_solid, 2)
+    if not na(sb0) and not na(sh0)
+        f_add_line(sb0, sh0, bar_index, sh0, col, line.style_dotted, 1)
+        f_add_label(sb0, sh0, "VCP pivot", col, label.style_label_down, size.tiny)
+
+f_draw_rounded() =>
+    // U-shape polyline: left rim -> trough -> right side
+    if not na(rbPivot) and not na(rbSupport)
+        leftX = bar_index - 75
+        midX = bar_index - troughBars90
+        rightX = bar_index
+        // Keep chronological order
+        x1 = math.min(leftX, midX - 1)
+        x2 = midX
+        x3 = rightX
+        y1 = rbPivot
+        y2 = rbSupport
+        y3 = math.max(close, rbSupport + (rbPivot - rbSupport) * 0.65)
+        pts = array.new<chart.point>()
+        array.push(pts, chart.point.from_index(x1, y1))
+        array.push(pts, chart.point.from_index(int(math.round((x1 + x2) * 0.5)), y2 + (y1 - y2) * 0.35))
+        array.push(pts, chart.point.from_index(x2, y2))
+        array.push(pts, chart.point.from_index(int(math.round((x2 + x3) * 0.5)), y2 + (y3 - y2) * 0.45))
+        array.push(pts, chart.point.from_index(x3, y3))
+        pln = polyline.new(pts, curved=true, line_color=#00897B, line_width=2, fill_color=color.new(#00897B, 92))
+        array.push(patPoly, pln)
+        f_add_label(x2, y2, "Saucer", #00897B, label.style_label_up, size.tiny)
+        f_add_line(x1, y1, x3, y1, #00897B, line.style_dashed, 1)
+        f_add_label(x1, y1, "Rim", #00897B, label.style_label_down, size.tiny)
+
+f_draw_trendline() =>
+    col = #EF6C00
+    if not na(sb2) and not na(sh2) and not na(sb0) and not na(sh0) and not na(tlPivot)
+        f_add_line(sb2, sh2, sb1, sh1, col, line.style_solid, 2)
+        f_add_line(sb1, sh1, sb0, sh0, col, line.style_solid, 2)
+        // extend to now
+        f_add_line(sb0, sh0, bar_index, tlPivot, col, line.style_dashed, 2)
+        f_add_label(bar_index, tlPivot, "Desc TL", col, label.style_label_left, size.tiny)
+        if not na(sl0) and not na(lb0) and not na(sl1) and not na(lb1)
+            f_add_line(lb1, sl1, lb0, sl0, color.new(col, 30), line.style_dotted, 1)
+
+f_draw_zone() =>
+    // Pattern zone band (not generic S/R plot) — thin box across swing span
+    if not na(zoneLevel) and not na(lb0)
+        left = not na(lb3) ? lb3 : not na(lb2) ? lb2 : not na(lb1) ? lb1 : lb0
+        pad = zoneLevel * zoneTolPct / 100.0
+        f_add_box(left, zoneLevel + pad, bar_index, zoneLevel - pad, color.new(#2E7D32, 40), color.new(#2E7D32, 88))
+        f_add_label(left, zoneLevel, "Support Zone", #2E7D32, label.style_label_right, size.tiny)
+
+f_draw_spring() =>
+    col = #C62828
+    if not na(rangeLowSp) and not na(rangeHighSp)
+        left = bar_index - 70
+        f_add_box(left, rangeHighSp, bar_index, rangeLowSp, color.new(col, 55), color.new(col, 92))
+        springX = bar_index - springBar
+        f_add_label(springX, minLow20, "SPRING", col, label.style_label_up, size.tiny)
+        f_add_line(springX, minLow20, springX, rangeLowSp, col, line.style_dotted, 1)
+        f_add_line(left, rangeHighSp, bar_index, rangeHighSp, col, line.style_dashed, 1)
+        f_add_label(bar_index, rangeHighSp, "Range high", col, label.style_label_left, size.tiny)
+
+f_draw_swings() =>
+    // Tiny markers on swing pivots that feed pattern detection
+    if not na(sb0) and not na(sh0)
+        f_add_label(sb0, sh0, "▲", #607D8B, label.style_label_down, size.tiny)
+    if not na(sb1) and not na(sh1)
+        f_add_label(sb1, sh1, "▲", #607D8B, label.style_label_down, size.tiny)
+    if not na(sb2) and not na(sh2)
+        f_add_label(sb2, sh2, "▲", #607D8B, label.style_label_down, size.tiny)
+    if not na(lb0) and not na(sl0)
+        f_add_label(lb0, sl0, "▼", #607D8B, label.style_label_up, size.tiny)
+    if not na(lb1) and not na(sl1)
+        f_add_label(lb1, sl1, "▼", #607D8B, label.style_label_up, size.tiny)
+    if not na(lb2) and not na(sl2)
+        f_add_label(lb2, sl2, "▼", #607D8B, label.style_label_up, size.tiny)
+
+// Rebuild drawings once per bar close / last bar only (performance)
+if showPatterns and barstate.islast
+    f_clear_drawings()
+    if showSwingDots
+        f_draw_swings()
+    // Primary always if active; optionally all active patterns
+    drawDB = dbActive and dbScore >= 55 and (showAllPats or primaryName == "Double Bottom" or secondaryName == "Double Bottom")
+    drawVCP = vcpActive and vcpScore >= 52 and (showAllPats or primaryName == "VCP Base" or secondaryName == "VCP Base")
+    drawRB = rbActive and rbScore >= 50 and (showAllPats or primaryName == "Rounded Bottom" or secondaryName == "Rounded Bottom")
+    drawTL = tlActive and tlScore >= 55 and (showAllPats or primaryName == "Trendline Break" or secondaryName == "Trendline Break")
+    drawZN = zoneActive and zoneScore >= 55 and (showAllPats or primaryName == "Strong Support Zone" or secondaryName == "Strong Support Zone")
+    drawSP = spActive and spScore >= 58 and (showAllPats or primaryName == "Wyckoff Spring" or secondaryName == "Wyckoff Spring")
+    if drawDB
+        f_draw_double_bottom()
+    if drawVCP
+        f_draw_vcp()
+    if drawRB
+        f_draw_rounded()
+    if drawTL
+        f_draw_trendline()
+    if drawZN
+        f_draw_zone()
+    if drawSP
+        f_draw_spring()
+    // Legend label near last bar
+    if bestScore >= 50
+        legend = patternLabel + " | " + patternStatus + " | " + str.tostring(totalScore, "#.0")
+        f_add_label(bar_index, high, legend, isReady ? #2E7D32 : #1565C0, label.style_label_down, size.small)
 
 // ─── Dashboard ──────────────────────────────────────────────────────────────
 var table dash = table.new(f_pos(tablePos), 2, 16, border_width=1)
@@ -594,7 +759,7 @@ if showTable and barstate.islast
 readyAlert = isReady and not isReady[1]
 breakAlert = patternStatus == "BREAKOUT" and patternStatus[1] != "BREAKOUT" and inCorrBand and hasTrigger and totalScore >= formingMin
 
-alertcondition(readyAlert, title="Ready To Entry", message="BR Pro: READY TO ENTRY on {{ticker}}. Confirm pivot/zone on chart.")
+alertcondition(readyAlert, title="Ready To Entry", message="BR Pro: READY TO ENTRY on {{ticker}}. Confirm pattern drawing on chart.")
 alertcondition(breakAlert, title="Pivot Breakout", message="BR Pro: PIVOT BREAKOUT on {{ticker}}. Confirm volume.")
 alertcondition(isForming and not isForming[1], title="Forming Base", message="BR Pro: Forming base on {{ticker}}.")
 
