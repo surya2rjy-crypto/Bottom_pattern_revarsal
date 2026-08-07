@@ -20,11 +20,25 @@ Pine Script indicator that mirrors the **Bottom Reversal Screener** logic on any
 
 ## What you see
 
-- Dashboard: Status, Score 0–100, pattern name, pivot/support, component scores
-- Green background + **READY** label = high-probability entry zone
-- Orange = forming base (wait)
-- Teal line = pivot / neckline / rim  
-- Red line = structural support / stop reference
+- **Pattern drawings on chart** (main feature):
+  - Blue **W** = Double Bottom (+ dashed neckline)
+  - Purple **zigzag** = VCP contractions (+ pivot)
+  - Teal **U curve** = Rounded / Saucer bottom (+ rim)
+  - Orange **line** = Descending trendline break
+  - Green **band** = Strong support-zone pattern
+  - Red **box / SPRING** = Wyckoff spring
+  - Grey ▲▼ = swing pivots used by detectors
+- Dashboard table: score, status, pivot/support numbers
+- No background fill and no generic S/R plot lines (kept clean for learning patterns)
+
+## Display toggles
+
+| Input | Default | Purpose |
+|-------|---------|---------|
+| Draw detected patterns | On | Master switch for drawings |
+| Draw all active patterns | On | Off = only primary/secondary names |
+| Mark swing highs/lows | On | See the pivots the engine uses |
+| Show READY marker | Off | Optional |
 
 ## TradingView Screener (optional)
 

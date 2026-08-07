@@ -27,20 +27,31 @@ The indicator lives only under `tradingview/` and does **not** change the Python
 
 ---
 
-## 2. Dashboard fields
+## 2. Dashboard fields & pattern drawings
+
+### Chart drawings (for learning / spotting patterns)
+
+| Drawing | Color | Meaning |
+|---------|-------|---------|
+| W + neckline | Blue | Double Bottom |
+| Zigzag swings | Purple | VCP contractions |
+| Curved U + rim | Teal | Rounded / Saucer |
+| Descending line | Orange | Trendline break / wedge |
+| Horizontal band | Green | Strong support-zone pattern |
+| Range box + SPRING | Red | Wyckoff spring |
+| ▲ / ▼ | Grey | Swing highs / lows used |
+
+Drawings rebuild only on the last bar (optimized). Toggle via **Display** inputs.
+
+### Dashboard table
 
 | Field | Meaning |
 |-------|---------|
 | STATUS | `READY TO ENTRY` / `FORMING BASE` / `WATCHLIST` / `NO SETUP` |
-| SCORE | Weighted 0–100 conviction (same philosophy as Excel screener) |
-| Pattern | Best pattern(s): Rounded Bottom, VCP Base, Double Bottom, Trendline Break, Strong Support Zone, Wyckoff Spring |
+| SCORE | Weighted 0–100 conviction |
+| Pattern | Best pattern(s) detected |
 | Pat Status | `FORMING` / `NEAR_ENTRY` / `BREAKOUT` |
-| % vs 52W High | Correction depth (must be in band for setups) |
-| Pivot | Trigger level (neckline / rim / last contraction high / trendline) |
-| Support | Invalidation / stop reference |
-| Dist→Pivot | How close price is to the trigger |
-| Component rows | Correction, Base, PatternQ, Volume, Momentum, SupportZone, RS proxy |
-| Risk map | Suggested stop / pivot sketch |
+| Pivot / Support | Numbers only in table (not plotted as S/R lines) |
 
 ---
 
