@@ -123,6 +123,20 @@ Both share the same research basis and Ready/Forming philosophy.
 
 ---
 
-## 8. Disclaimer
+## Fix: Runtime error RE10008
 
-Educational / research tool only. Patterns and scores are probabilistic, not guarantees. Not investment advice. Always confirm structure on the chart and size risk appropriately.
+If you see a red `!` with **Runtime error: RE10008**, replace the script with the latest
+`tradingview/Bottom_Reversal_Pro.pine` from this repo.
+
+**Cause:** Pine historical-buffer limits — usually dynamic `ta.highest/lowest` lengths,
+deep history inside loops, or per-bar array allocation.
+
+**What we changed:**
+- Fixed-length `ta.*` calls only (no dynamic lengths)
+- `max_bars_back=500` + explicit buffers on key series
+- No `array.new_*()` on every bar
+- Simpler saucer slopes / support-zone bounce proxies
+
+Then in TradingView: Pine Editor → paste updated script → Save → Add to chart.
+Use **Daily** timeframe for best results.
+
