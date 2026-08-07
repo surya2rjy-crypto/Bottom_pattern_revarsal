@@ -649,7 +649,7 @@ f_draw_rounded() =>
         array.push(pts, chart.point.from_index(x2, y2))
         array.push(pts, chart.point.from_index(int(math.round((x2 + x3) * 0.5)), y2 + (y3 - y2) * 0.45))
         array.push(pts, chart.point.from_index(x3, y3))
-        pln = polyline.new(pts, curved=true, line_color=#00897B, line_width=2, fill_color=color.new(#00897B, 92))
+        pln = polyline.new(pts, curved=true, xloc=xloc.bar_index, line_color=#00897B, line_width=2, fill_color=color.new(#00897B, 92))
         array.push(patPoly, pln)
         f_add_label(x2, y2, "Saucer", #00897B, label.style_label_up, size.tiny)
         f_add_line(x1, y1, x3, y1, #00897B, line.style_dashed, 1)
