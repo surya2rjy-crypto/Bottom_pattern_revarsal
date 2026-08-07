@@ -140,3 +140,9 @@ deep history inside loops, or per-bar array allocation.
 Then in TradingView: Pine Editor → paste updated script → Save → Add to chart.
 Use **Daily** timeframe for best results.
 
+---
+
+## 9. Disclaimer
+
+Educational / research tool only. Patterns and scores are probabilistic, not guarantees. Not investment advice. Always confirm structure on the chart and size risk appropriately.
+
