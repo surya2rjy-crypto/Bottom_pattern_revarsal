@@ -1,0 +1,53 @@
+# =============================================================================
+# Bottom Reversal Screener — Configuration
+# =============================================================================
+# Tuned for high-probability setups only. Stricter = fewer names, higher quality.
+
+universe:
+  include_nifty500: true
+  include_etfs: true
+  min_avg_volume: 50000          # liquidity filter (20-day avg)
+  min_price: 20                  # avoid penny / illiquid names
+  lookback_days: 400             # ~16 months for 52w + base context
+
+correction:
+  # Must have corrected from 52-week high
+  min_pct_from_high: 12          # at least -12% from 52w high
+  max_pct_from_high: 55          # deeper than -55% = often structural damage
+  # Prefer stocks that have stopped making new lows
+  days_since_52w_high_min: 20
+
+base:
+  min_base_days: 25              # minimum consolidation length
+  max_base_days: 160
+  max_base_depth_pct: 35         # base depth vs left-side high
+  vol_dryup_ratio: 0.75          # recent vol vs 50d avg for dry-up
+
+entry:
+  # Ready-to-Entry: near pivot / support reclaim / breakout
+  near_pivot_pct: 2.5            # within 2.5% of pattern pivot
+  ready_min_score: 80            # only high-conviction on page 1
+  forming_min_score: 60
+  watchlist_min_score: 48
+
+scoring:
+  weights:
+    correction_quality: 12
+    base_structure: 22
+    pattern_quality: 20
+    volume_signature: 15
+    momentum_turn: 12
+    support_zone_strength: 12
+    relative_strength: 7
+  # Soft caps so one factor cannot dominate
+  max_component: 100
+
+output:
+  folder: output
+  filename_prefix: Bottom_Reversal_Screener
+  open_excel_after_run: false
+
+performance:
+  batch_size: 40
+  max_workers: 6
+  request_pause_sec: 0.05

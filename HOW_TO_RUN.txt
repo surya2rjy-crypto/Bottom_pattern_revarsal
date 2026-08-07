@@ -1,0 +1,28 @@
+================================================================================
+  BOTTOM REVERSAL SCREENER — HOW TO RUN (Windows Laptop)
+================================================================================
+
+1) Install Python 3.10 or newer from https://www.python.org/downloads/
+   - During install, CHECK: "Add python.exe to PATH"
+
+2) Copy this whole project folder to your PC (e.g. D:\Bottom_Reversal_Screener)
+
+3) Double-click:  run_screener.bat
+   - First run creates .venv and installs packages automatically
+   - Full Nifty 500 + ETF scan usually takes several minutes
+
+4) When finished, Excel files appear in the  output\  folder:
+      Bottom_Reversal_Screener_LATEST.xlsx
+
+5) Open Excel:
+   - Sheet 1 "1_Ready_To_Entry"  = ONLY names near entry zone (use this first)
+   - Other sheets = Forming / Watchlist / ETFs / full qualified / methodology
+
+Optional:
+   - run_smoke_test.bat     → fast test on 40 symbols
+   - Edit config\settings.yaml to tighten/loosen filters
+
+Read docs\METHODOLOGY.md for every metric and pattern logic.
+
+Disclaimer: Research tool only. Not investment advice.
+================================================================================

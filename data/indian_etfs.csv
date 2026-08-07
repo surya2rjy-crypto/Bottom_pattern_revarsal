@@ -1,0 +1,52 @@
+symbol,name,category
+NIFTYBEES,Nippon India ETF Nifty 50 BeES,Broad
+JUNIORBEES,Nippon India ETF Nifty Next 50 Junior BeES,Broad
+BANKBEES,Nippon India ETF Nifty Bank BeES,Sector
+ITBEES,Nippon India ETF Nifty IT,Sector
+PSUBNKBEES,Nippon India ETF Nifty PSU Bank BeES,Sector
+INFRABEES,Nippon India ETF Nifty Infra BeES,Sector
+PHARMABEES,Nippon India ETF Nifty Pharma BeES,Sector
+AUTOBEES,Nippon India Nifty Auto ETF,Sector
+CONSUMBEES,Nippon India ETF Nifty India Consumption,Sector
+MID150BEES,Nippon India ETF Nifty Midcap 150,Broad
+DIVOPPBEES,Nippon India ETF Nifty Dividend Opportunities 50,Factor
+CPSEETF,CPSE ETF,Thematic
+GOLDBEES,Nippon India ETF Gold BeES,Commodity
+SILVERBEES,Nippon India Silver ETF,Commodity
+LIQUIDBEES,Nippon India ETF Nifty 1D Rate Liquid BeES,Liquid
+MON100,Motilal Oswal Nasdaq 100 ETF,International
+MOM50,Motilal Oswal M50 ETF,Broad
+MOM100,Motilal Oswal Midcap 100 ETF,Broad
+ALPHAETF,Mirae Asset Nifty Alpha 50 / Alpha ETF,Factor
+MAFANG,Mirae Asset NYSE FANG+ ETF,International
+MAHKTECH,Mirae Asset Hang Seng TECH ETF,International
+MODEFENCE,Motilal Oswal Nifty India Defence ETF,Thematic
+ICICIB22,ICICI Prudential Nifty Next 50 ETF,Broad
+HEALTHY,ICICI Prudential Healthcare ETF,Sector
+BFSI,ICICI Prudential Private Banks ETF,Sector
+LOWVOLIETF,ICICI Prudential Nifty Low Vol 30 ETF,Factor
+GOLDIETF,ICICI Prudential Gold ETF,Commodity
+SILVERIETF,ICICI Prudential Silver ETF,Commodity
+METALIETF,ICICI Prudential Nifty Metal ETF,Sector
+CONSUMIETF,ICICI Prudential Nifty India Consumption ETF,Sector
+NV20IETF,ICICI Prudential Nifty50 Value 20 ETF,Factor
+MOMENTUM,ICICI Prudential Nifty 200 Momentum 30 ETF,Factor
+MAKEINDIA,ICICI Prudential Nifty India Manufacturing ETF,Thematic
+EVINDIA,Mirae / ICICI India EV and Mobility related ETF,Thematic
+SETFNIF50,SBI ETF Nifty 50,Broad
+SETFNIFBK,SBI ETF Nifty Bank,Sector
+SETFNN50,SBI ETF Nifty Next 50,Broad
+SBISILVER,SBI Silver ETF,Commodity
+HDFCNIFTY,HDFC Nifty 50 ETF,Broad
+HDFCMID150,HDFC Nifty Midcap 150 ETF,Broad
+HDFCSML250,HDFC Nifty Smallcap 250 ETF,Broad
+HDFCGOLD,HDFC Gold ETF,Commodity
+AXISNIFTY,Axis Nifty 50 ETF,Broad
+AXISTECETF,Axis Nifty IT ETF,Sector
+AXISGOLD,Axis Gold ETF,Commodity
+QNIFTY,Quantum Nifty 50 ETF,Broad
+BSLNIFTY,Aditya Birla Sun Life Nifty 50 ETF,Broad
+GROWWGOLD,Groww Gold ETF,Commodity
+TATAGOLD,Tata Gold ETF,Commodity
+LIQUIDCASE,Groww Liquid ETF / LiquidCASE,Liquid
+ABSLLIQUID,Aditya Birla Sun Life CRISIL Liquid Overnight ETF,Liquid
