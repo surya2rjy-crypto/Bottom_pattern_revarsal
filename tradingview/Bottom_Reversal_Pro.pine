@@ -1,0 +1,648 @@
+//@version=5
+// =============================================================================
+// Bottom Reversal Pro — TradingView Indicator
+// Mirrors the Python Nifty500+ETF Bottom Reversal Screener logic on a chart.
+// Recommended timeframe: 1D (also works on 1W).
+// Universe tip: apply on NSE stocks & Indian ETFs; use TV screener with
+//   "BR Ready Flag" = 1  and/or  "BR Score" >= 80
+// NOT financial advice.
+// =============================================================================
+indicator(
+     title                 = "Bottom Reversal Pro",
+     shorttitle            = "BR Pro",
+     overlay               = true,
+     max_labels_count      = 500,
+     max_lines_count       = 500,
+     explicit_plot_zorder  = true)
+
+// ─── Inputs ────────────────────────────────────────────────────────────────
+grpCorr = "1) Correction from 52W High"
+minPullbackPct   = input.float(12.0, "Min pullback from 52W high %", minval=5, maxval=40, step=0.5, group=grpCorr)
+maxPullbackPct   = input.float(55.0, "Max pullback from 52W high %", minval=20, maxval=80, step=0.5, group=grpCorr)
+minBarsSinceHigh = input.int(20, "Min bars since 52W high", minval=5, maxval=100, group=grpCorr)
+lookbackHigh     = input.int(252, "52W lookback bars", minval=100, maxval=365, group=grpCorr)
+
+grpBase = "2) Base / Volume"
+volDryupRatio = input.float(0.75, "Volume dry-up ratio (vol20/vol50)", minval=0.4, maxval=1.0, step=0.05, group=grpBase)
+atrLookback   = input.int(50, "ATR compression lookback", minval=20, maxval=100, group=grpBase)
+
+grpPat = "3) Patterns"
+swingLen     = input.int(5, "Swing pivot length", minval=2, maxval=15, group=grpPat)
+saucerLen    = input.int(90, "Rounded bottom lookback", minval=45, maxval=150, group=grpPat)
+nearPivotPct = input.float(2.5, "Near-pivot distance %", minval=0.5, maxval=5.0, step=0.1, group=grpPat)
+zoneTolPct   = input.float(2.5, "Support zone tolerance %", minval=1.0, maxval=5.0, step=0.1, group=grpPat)
+
+grpScore = "4) Scoring / Status"
+readyMin   = input.int(80, "Ready-To-Entry min score", minval=60, maxval=95, group=grpScore)
+formingMin = input.int(60, "Forming min score", minval=40, maxval=85, group=grpScore)
+wCorr = input.int(12, "Weight: Correction", minval=0, maxval=40, group=grpScore)
+wBase = input.int(22, "Weight: Base", minval=0, maxval=40, group=grpScore)
+wPat  = input.int(20, "Weight: Pattern", minval=0, maxval=40, group=grpScore)
+wVol  = input.int(15, "Weight: Volume", minval=0, maxval=40, group=grpScore)
+wMom  = input.int(12, "Weight: Momentum", minval=0, maxval=40, group=grpScore)
+wZone = input.int(12, "Weight: Support Zone", minval=0, maxval=40, group=grpScore)
+wRS   = input.int(7,  "Weight: Relative Strength", minval=0, maxval=40, group=grpScore)
+
+grpVis = "5) Display"
+showTable   = input.bool(true, "Show score dashboard", group=grpVis)
+showPivot   = input.bool(true, "Show pivot / support lines", group=grpVis)
+showSignals = input.bool(true, "Show Ready / Forming markers", group=grpVis)
+showBg      = input.bool(true, "Highlight Ready background", group=grpVis)
+tablePos    = input.string("Top Right", "Table position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=grpVis)
+
+grpAlert = "6) Alerts"
+alertOnReady = input.bool(true, "Alert when Ready-To-Entry", group=grpAlert)
+alertOnBreak = input.bool(true, "Alert on pivot breakout", group=grpAlert)
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+f_clamp(v, lo, hi) =>
+    math.max(lo, math.min(hi, v))
+
+f_pos(name) =>
+    switch name
+        "Top Right" => position.top_right
+        "Top Left" => position.top_left
+        "Bottom Left" => position.bottom_left
+        => position.bottom_right
+
+// Linear regression slope over last `len` bars of `src`
+f_slope(src, len) =>
+    sumX = len * (len - 1) * 0.5
+    sumX2 = (len - 1) * len * (2 * len - 1) / 6.0
+    sumY = 0.0
+    sumXY = 0.0
+    for i = 0 to len - 1
+        y = src[i]
+        x = len - 1 - i
+        sumY += y
+        sumXY += x * y
+    denom = len * sumX2 - sumX * sumX
+    denom == 0 ? 0.0 : (len * sumXY - sumX * sumY) / denom
+
+// Slope of a window ending `offset` bars ago
+f_slope_offset(src, len, offset) =>
+    sumX = len * (len - 1) * 0.5
+    sumX2 = (len - 1) * len * (2 * len - 1) / 6.0
+    sumY = 0.0
+    sumXY = 0.0
+    for i = 0 to len - 1
+        y = src[offset + i]
+        x = len - 1 - i
+        sumY += y
+        sumXY += x * y
+    denom = len * sumX2 - sumX * sumX
+    denom == 0 ? 0.0 : (len * sumXY - sumX * sumY) / denom
+
+// ─── Core series ────────────────────────────────────────────────────────────
+sma50  = ta.sma(close, 50)
+sma200 = ta.sma(close, 200)
+vol20  = ta.sma(volume, 20)
+vol50  = ta.sma(volume, 50)
+atr14  = ta.atr(14)
+atrPct = close > 0 ? atr14 / close * 100.0 : 0.0
+rsi14  = ta.rsi(close, 14)
+[macdLine, signalLine, hist] = ta.macd(close, 12, 26, 9)
+obvVal = ta.obv
+
+high52 = ta.highest(high, lookbackHigh)
+low52  = ta.lowest(low, lookbackHigh)
+pctFromHigh = high52 > 0 ? (close / high52 - 1.0) * 100.0 : 0.0
+pctFromLow  = low52 > 0 ? (close / low52 - 1.0) * 100.0 : 0.0
+barsSinceHigh = ta.barssince(high >= high52)
+barsSinceHighSafe = na(barsSinceHigh) ? 999 : barsSinceHigh
+
+// ─── 1) Correction quality ──────────────────────────────────────────────────
+depth = math.abs(pctFromHigh)
+inCorrBand = pctFromHigh <= -minPullbackPct and pctFromHigh >= -maxPullbackPct
+corrScore = 0.0
+corrNote = "Outside correction band"
+if inCorrBand
+    corrScore := depth >= 18 and depth <= 35 ? 90.0 : depth >= 12 and depth < 18 ? 70.0 : depth > 35 and depth <= 45 ? 72.0 : 55.0
+    if barsSinceHighSafe >= minBarsSinceHigh
+        corrScore := f_clamp(corrScore + 8.0, 0, 100)
+        corrNote := "Pullback " + str.tostring(depth, "#.#") + "% | " + str.tostring(barsSinceHighSafe) + " bars since high"
+    else
+        corrScore := f_clamp(corrScore - 20.0, 0, 100)
+        corrNote := "Pullback too fresh (" + str.tostring(barsSinceHighSafe) + " bars)"
+
+// ─── 2) Base structure ──────────────────────────────────────────────────────
+rangeRecent = close > 0 ? (ta.highest(high, 20) - ta.lowest(low, 20)) / close * 100.0 : 0.0
+hi60 = ta.highest(high, 60)
+lo60 = ta.lowest(low, 60)
+rangePrior = close > 0 ? (hi60 - lo60) / close * 100.0 : rangeRecent
+atrCompress = atrPct < atrPct[atrLookback]
+rangeCompress = rangePrior > 0 and rangeRecent < rangePrior * 0.85
+waterfall = close < close[1] and close[1] < close[2] and close[2] < close[3] and close[3] < close[4] and close[4] < close[5]
+above50 = not na(sma50) and close > sma50
+sma50Up = not na(sma50) and sma50 > sma50[10]
+
+baseScore = 45.0
+if rangeCompress
+    baseScore += 15.0
+if atrCompress
+    baseScore += 12.0
+if not waterfall
+    baseScore += 10.0
+else
+    baseScore -= 15.0
+if above50
+    baseScore += 10.0
+else if not na(sma50) and close > sma50 * 0.97
+    baseScore += 5.0
+if sma50Up
+    baseScore += 8.0
+baseScore := f_clamp(baseScore, 0, 100)
+
+// ─── 3) Volume signature ────────────────────────────────────────────────────
+volDry = not na(vol50) and vol50 > 0 and vol20 < vol50 * volDryupRatio
+climaxVol = ta.highest(volume, 40)
+climaxDone = climaxVol > vol50 * 1.8 and volume < climaxVol
+accum = obvVal > obvVal[20] and (close / close[20] - 1.0) * 100.0 > -3.0
+
+upVol = 0.0
+dnVol = 0.0
+upN = 0
+dnN = 0
+for i = 0 to 14
+    if close[i] > close[i + 1]
+        upVol += volume[i]
+        upN += 1
+    else if close[i] < close[i + 1]
+        dnVol += volume[i]
+        dnN += 1
+upAvg = upN > 0 ? upVol / upN : 0.0
+dnAvg = dnN > 0 ? dnVol / dnN : 0.0
+upDom = dnAvg > 0 and upAvg > dnAvg
+
+volScore = 40.0
+if volDry
+    volScore += 20.0
+if climaxDone
+    volScore += 15.0
+if accum
+    volScore += 18.0
+if upDom
+    volScore += 10.0
+volScore := f_clamp(volScore, 0, 100)
+
+// ─── 4) Momentum ────────────────────────────────────────────────────────────
+momScore = 40.0
+if rsi14 >= 40 and rsi14 <= 60
+    momScore += 18.0
+else if rsi14 >= 30 and rsi14 < 40
+    momScore += 12.0
+else if rsi14 < 30
+    momScore += 5.0
+else if rsi14 > 60 and rsi14 <= 70
+    momScore += 10.0
+else
+    momScore += 2.0
+
+histRising = hist > hist[3]
+if histRising and hist > 0
+    momScore += 20.0
+else if histRising
+    momScore += 12.0
+
+lowIdx = ta.lowestbars(close, 40)
+rsiDiv = rsi14 > rsi14[lowIdx] + 3 and close <= close[lowIdx] * 1.05
+if rsiDiv
+    momScore += 15.0
+momScore := f_clamp(momScore, 0, 100)
+
+// ─── 5) RS proxy ────────────────────────────────────────────────────────────
+ret3m = close[63] > 0 ? (close / close[63] - 1.0) * 100.0 : 0.0
+sma200Slope = not na(sma200) and sma200[63] > 0 ? (sma200 / sma200[63] - 1.0) * 100.0 : 0.0
+rsScore = f_clamp(50.0 + (ret3m - sma200Slope) * 1.2, 0, 100)
+
+// ─── Swing pivots ───────────────────────────────────────────────────────────
+ph = ta.pivothigh(high, swingLen, swingLen)
+pl = ta.pivotlow(low, swingLen, swingLen)
+
+var float[] shP = array.new_float()
+var int[]   shB = array.new_int()
+var float[] slP = array.new_float()
+var int[]   slB = array.new_int()
+
+if not na(ph)
+    array.unshift(shP, ph)
+    array.unshift(shB, bar_index - swingLen)
+    while array.size(shP) > 10
+        array.pop(shP)
+        array.pop(shB)
+
+if not na(pl)
+    array.unshift(slP, pl)
+    array.unshift(slB, bar_index - swingLen)
+    while array.size(slP) > 10
+        array.pop(slP)
+        array.pop(slB)
+
+// ─── Double Bottom ──────────────────────────────────────────────────────────
+dbScore = 0.0
+dbPivot = float(na)
+dbSupport = float(na)
+dbActive = false
+if array.size(slP) >= 2
+    d2 = array.get(slP, 0)
+    d1 = array.get(slP, 1)
+    b2 = array.get(slB, 0)
+    b1 = array.get(slB, 1)
+    sep = b2 - b1
+    avgLow = (d1 + d2) * 0.5
+    tol = avgLow > 0 ? math.abs(d1 - d2) / avgLow * 100.0 : 99.0
+    if sep >= 10 and sep <= 80 and tol <= 3.5 and avgLow > 0
+        neck = ta.highest(high, sep + swingLen)
+        depthDB = neck > 0 ? (neck - avgLow) / neck * 100.0 : 0.0
+        if depthDB >= 6 and depthDB <= 40
+            dbActive := true
+            dbPivot := neck
+            dbSupport := math.min(d1, d2)
+            dbScore := 58.0 + math.max(0.0, 10.0 - tol * 2.0) + math.min(12.0, depthDB * 0.35)
+            if d2 >= d1 * 0.998
+                dbScore += 6.0
+            // Volume dry-up on 2nd low: compare valuewhen of volume at recent pivot lows
+            v2 = ta.valuewhen(not na(pl), volume[swingLen], 0)
+            v1 = ta.valuewhen(not na(pl), volume[swingLen], 1)
+            if not na(v1) and not na(v2) and v2 < v1 * 0.9
+                dbScore += 8.0
+            dbScore := f_clamp(dbScore, 0, 100)
+
+// ─── VCP Base ───────────────────────────────────────────────────────────────
+vcpScore = 0.0
+vcpPivot = float(na)
+vcpSupport = float(na)
+vcpActive = false
+if array.size(shP) >= 3 and array.size(slP) >= 2
+    // Depths from last 3 swing highs to the lowest subsequent swing low found in array
+    depths = array.new_float()
+    peaks = array.new_float()
+    troughs = array.new_float()
+    for i = 0 to 2
+        pk = array.get(shP, i)
+        pb = array.get(shB, i)
+        bestT = float(na)
+        for j = 0 to array.size(slP) - 1
+            if array.get(slB, j) > pb
+                candidate = array.get(slP, j)
+                if na(bestT) or candidate < bestT
+                    bestT := candidate
+        if not na(bestT) and pk > bestT
+            dpth = (pk - bestT) / pk * 100.0
+            if dpth >= 2 and dpth <= 35
+                array.push(depths, dpth)
+                array.push(peaks, pk)
+                array.push(troughs, bestT)
+    // depths were pushed oldest-of-3-first because i=0 is newest high — rebuild recent-first
+    // Actually i=0 is newest high; we want contractions from older→newer for shrink test
+    nC = array.size(depths)
+    if nC >= 2
+        // Because i loops 0(newest)..2(older), reverse for chronological contractions
+        firstD = array.get(depths, nC - 1)
+        lastD = array.get(depths, 0)
+        progressive = true
+        if nC >= 3
+            progressive := array.get(depths, 1) <= array.get(depths, 2) * 0.98 and array.get(depths, 0) <= array.get(depths, 1) * 0.98
+        else
+            progressive := lastD <= firstD * 0.98
+        shrink = lastD < firstD * 0.85
+        if shrink or progressive
+            vcpActive := true
+            vcpPivot := array.get(peaks, 0)
+            vcpSupport := array.get(troughs, 0)
+            higherLows = array.size(slP) >= 2 and array.get(slP, 0) >= array.get(slP, 1) * 0.995
+            atrContract = atrPct < atrPct[40] * 0.85
+            vcpScore := 50.0
+            vcpScore += progressive ? 12.0 : 6.0
+            vcpScore += shrink ? 8.0 : 0.0
+            vcpScore += higherLows ? 10.0 : 0.0
+            vcpScore += volDry ? 10.0 : 0.0
+            vcpScore += atrContract ? 8.0 : 0.0
+            vcpScore += math.min(10.0, math.max(0.0, firstD - lastD))
+            vcpScore := f_clamp(vcpScore, 0, 100)
+
+// ─── Rounded / Saucer Bottom ────────────────────────────────────────────────
+rbScore = 0.0
+rbPivot = float(na)
+rbSupport = float(na)
+rbActive = false
+third = int(math.floor(saucerLen / 3))
+if bar_index > saucerLen + 5 and third >= 8
+    leftSlope = f_slope_offset(close, third, saucerLen - third)
+    rightSlope = f_slope(close, third)
+    trough = ta.lowest(low, saucerLen)
+    rim = ta.highest(high, third)[saucerLen - third]
+    depthRB = rim > 0 ? (rim - trough) / rim * 100.0 : 0.0
+    priceScale = ta.sma(close, saucerLen)
+    leftDown = leftSlope < -0.01 * priceScale / third
+    rightUp = rightSlope > 0.005 * priceScale / third
+    vLeft = ta.sma(volume, third)[saucerLen - third]
+    vMid = ta.sma(volume, third)[saucerLen - 2 * third]
+    vRight = ta.sma(volume, third)
+    volU = vMid < vLeft * 0.9 and vRight > vMid
+    if depthRB >= 8 and depthRB <= 45 and leftDown and rightUp
+        rbActive := true
+        rbPivot := rim
+        rbSupport := trough
+        rbScore := 55.0 + math.min(15.0, depthRB * 0.4) + (volU ? 10.0 : 0.0)
+        leftDrop = ta.highest(high, third)[saucerLen - third] - trough
+        rightRise = ta.highest(high, third) - trough
+        if leftDrop > 0
+            rbScore += (math.min(leftDrop, rightRise) / math.max(leftDrop, rightRise)) * 10.0
+        rbScore := f_clamp(rbScore, 0, 100)
+
+// ─── Descending Trendline Break ─────────────────────────────────────────────
+tlScore = 0.0
+tlPivot = float(na)
+tlSupport = float(na)
+tlActive = false
+if array.size(shP) >= 3
+    y0 = array.get(shP, 2)
+    y1 = array.get(shP, 1)
+    y2 = array.get(shP, 0)
+    x0 = array.get(shB, 2)
+    x1 = array.get(shB, 1)
+    x2 = array.get(shB, 0)
+    s1 = x1 != x0 ? (y1 - y0) / (x1 - x0) : 0.0
+    s2 = x2 != x1 ? (y2 - y1) / (x2 - x1) : 0.0
+    avgSlope = (s1 + s2) * 0.5
+    if avgSlope < 0 and y2 < y0
+        lineNow = y2 + s2 * (bar_index - x2)
+        if lineNow > 0
+            tlActive := true
+            tlPivot := lineNow
+            tlSupport := array.size(slP) > 0 ? array.get(slP, 0) : ta.lowest(low, 40)
+            risingLows = array.size(slP) >= 2 and array.get(slP, 0) >= array.get(slP, 1) * 0.997
+            distTL = (lineNow - close) / lineNow * 100.0
+            tlScore := 52.0 + (risingLows ? 8.0 : 0.0) + math.min(15.0, math.abs(avgSlope) / close * 1000.0)
+            if close > lineNow * 1.002
+                tlScore += volume > vol50 * 1.25 ? 12.0 : 6.0
+            else if distTL <= 2.5
+                tlScore += 8.0
+            tlScore := f_clamp(tlScore, 0, 100)
+
+// ─── Strong Support Zone ────────────────────────────────────────────────────
+zoneScore = 0.0
+zoneLevel = float(na)
+zoneActive = false
+if array.size(slP) >= 3
+    ref = array.get(slP, 0)
+    touches = 0
+    bounceSum = 0.0
+    bounceN = 0
+    strongN = 0
+    for i = 0 to array.size(slP) - 1
+        lv = array.get(slP, i)
+        if ref > 0 and math.abs(lv - ref) / ref * 100.0 <= zoneTolPct
+            touches += 1
+            pb = array.get(slB, i)
+            age = bar_index - pb
+            if age >= 1 and age <= 200
+                look = math.min(age, 25)
+                hh = ta.highest(high, look)
+                bnc = lv > 0 ? (hh - lv) / lv * 100.0 : 0.0
+                bounceSum += bnc
+                bounceN += 1
+                if bnc >= math.max(5.0, atrPct * 2.5)
+                    strongN += 1
+    if touches >= 2 and bounceN > 0
+        avgBounce = bounceSum / bounceN
+        if strongN >= 1 and avgBounce >= 5.0 and (touches >= 3 or strongN >= 2)
+            distZ = (close - ref) / ref * 100.0
+            if distZ >= -3.0 and distZ <= 12.0
+                zoneActive := true
+                zoneLevel := ref
+                zoneScore := 50.0 + math.min(15.0, touches * 5.0) + math.min(20.0, avgBounce * 1.5) + math.min(12.0, strongN * 6.0)
+                if distZ >= 0 and distZ <= 4
+                    zoneScore += 10.0
+                zoneScore := f_clamp(zoneScore, 0, 100)
+
+// ─── Wyckoff Spring ─────────────────────────────────────────────────────────
+spScore = 0.0
+spPivot = float(na)
+spSupport = float(na)
+spActive = false
+baseLen = 70
+if bar_index > baseLen + 10
+    rangeLow = ta.lowest(low, baseLen - 8)[8]
+    rangeHigh = ta.highest(high, baseLen - 8)[8]
+    depthSP = rangeHigh > 0 ? (rangeHigh - rangeLow) / rangeHigh * 100.0 : 0.0
+    if depthSP >= 5 and depthSP <= 35
+        minLow20 = ta.lowest(low, 20)
+        undercut = rangeLow > 0 ? (rangeLow - minLow20) / rangeLow * 100.0 : 0.0
+        if undercut >= 0.3 and undercut <= 6.0 and close > rangeLow
+            springBar = ta.lowestbars(low, 20)
+            reclaimQuick = springBar <= 10
+            climax = volume[springBar] > vol50 * 1.3
+            spActive := true
+            spPivot := rangeHigh
+            spSupport := minLow20
+            spScore := 55.0 + math.min(12.0, undercut * 4.0) + (climax ? 10.0 : 0.0) + (reclaimQuick ? 8.0 : 0.0)
+            if close > (rangeLow + rangeHigh) * 0.5 * 0.98
+                spScore += 8.0
+            spScore := f_clamp(spScore, 0, 100)
+
+// ─── Aggregate patterns ─────────────────────────────────────────────────────
+primaryName = "No clear pattern"
+secondaryName = ""
+bestScore = 0.0
+secondScore = 0.0
+bestPivot = float(na)
+bestSupport = float(na)
+triggerCount = 0
+supportHit = zoneActive and zoneScore >= 55
+
+if dbActive and dbScore >= 55
+    triggerCount += 1
+    if dbScore >= bestScore
+        secondScore := bestScore
+        secondaryName := bestScore > 0 ? primaryName : ""
+        bestScore := dbScore
+        primaryName := "Double Bottom"
+        bestPivot := dbPivot
+        bestSupport := dbSupport
+    else if dbScore > secondScore
+        secondScore := dbScore
+        secondaryName := "Double Bottom"
+
+if vcpActive and vcpScore >= 52
+    triggerCount += 1
+    if vcpScore >= bestScore
+        secondScore := bestScore
+        secondaryName := bestScore > 0 ? primaryName : ""
+        bestScore := vcpScore
+        primaryName := "VCP Base"
+        bestPivot := vcpPivot
+        bestSupport := vcpSupport
+    else if vcpScore > secondScore
+        secondScore := vcpScore
+        secondaryName := "VCP Base"
+
+if rbActive and rbScore >= 50
+    triggerCount += 1
+    if rbScore >= bestScore
+        secondScore := bestScore
+        secondaryName := bestScore > 0 ? primaryName : ""
+        bestScore := rbScore
+        primaryName := "Rounded Bottom"
+        bestPivot := rbPivot
+        bestSupport := rbSupport
+    else if rbScore > secondScore
+        secondScore := rbScore
+        secondaryName := "Rounded Bottom"
+
+if tlActive and tlScore >= 55
+    triggerCount += 1
+    if tlScore >= bestScore
+        secondScore := bestScore
+        secondaryName := bestScore > 0 ? primaryName : ""
+        bestScore := tlScore
+        primaryName := "Trendline Break"
+        bestPivot := tlPivot
+        bestSupport := tlSupport
+    else if tlScore > secondScore
+        secondScore := tlScore
+        secondaryName := "Trendline Break"
+
+if spActive and spScore >= 58
+    triggerCount += 1
+    if spScore >= bestScore
+        secondScore := bestScore
+        secondaryName := bestScore > 0 ? primaryName : ""
+        bestScore := spScore
+        primaryName := "Wyckoff Spring"
+        bestPivot := spPivot
+        bestSupport := spSupport
+    else if spScore > secondScore
+        secondScore := spScore
+        secondaryName := "Wyckoff Spring"
+
+if zoneActive and zoneScore >= 55
+    if zoneScore >= bestScore
+        secondScore := bestScore
+        secondaryName := bestScore > 0 ? primaryName : ""
+        bestScore := zoneScore
+        primaryName := "Strong Support Zone"
+        if na(bestPivot)
+            bestPivot := ta.highest(high, 30)
+        bestSupport := zoneLevel
+    else if zoneScore > secondScore
+        secondScore := zoneScore
+        secondaryName := "Strong Support Zone"
+
+// Prefer classical trigger pivot for entry mapping
+usePivot = float(na)
+useSupport = float(na)
+// Rank triggers by score and pick best actionable pivot
+trigBest = 0.0
+if dbActive and dbScore >= trigBest
+    trigBest := dbScore
+    usePivot := dbPivot
+    useSupport := dbSupport
+if vcpActive and vcpScore >= trigBest
+    trigBest := vcpScore
+    usePivot := vcpPivot
+    useSupport := vcpSupport
+if rbActive and rbScore >= trigBest
+    trigBest := rbScore
+    usePivot := rbPivot
+    useSupport := rbSupport
+if tlActive and tlScore >= trigBest
+    trigBest := tlScore
+    usePivot := tlPivot
+    useSupport := tlSupport
+if spActive and spScore >= trigBest
+    trigBest := spScore
+    usePivot := spPivot
+    useSupport := spSupport
+if na(usePivot)
+    usePivot := bestPivot
+    useSupport := bestSupport
+
+patScore = bestScore > 0 ? bestScore : 25.0
+if bestScore > 0 and secondScore > 0
+    patScore := f_clamp(0.7 * bestScore + 0.3 * secondScore + 5.0, 0, 100)
+
+patternLabel = primaryName
+if secondaryName != "" and secondaryName != primaryName and secondaryName != "No clear pattern"
+    patternLabel := primaryName + " + " + secondaryName
+
+distToPivot = not na(usePivot) and usePivot > 0 ? (usePivot - close) / usePivot * 100.0 : float(na)
+patternStatus = "FORMING"
+if not na(usePivot)
+    if close >= usePivot * 0.998
+        patternStatus := volume > vol50 * 1.25 ? "BREAKOUT" : "NEAR_ENTRY"
+    else if not na(distToPivot) and distToPivot <= nearPivotPct
+        patternStatus := "NEAR_ENTRY"
+
+zoneComp = zoneActive ? zoneScore : baseScore * 0.6
+
+// ─── Composite score & buckets ──────────────────────────────────────────────
+wSum = wCorr + wBase + wPat + wVol + wMom + wZone + wRS
+totalScore = wSum > 0 ? (corrScore * wCorr + baseScore * wBase + patScore * wPat + volScore * wVol + momScore * wMom + zoneComp * wZone + rsScore * wRS) / wSum : 0.0
+totalScore := f_clamp(totalScore, 0, 100)
+
+confluence = triggerCount >= 2 or (triggerCount >= 1 and supportHit)
+nearPivot = not na(distToPivot) and distToPivot >= -0.5 and distToPivot <= nearPivotPct
+notExtended = na(distToPivot) or distToPivot >= -1.5
+breakoutOK = patternStatus != "BREAKOUT" or volume >= vol50 * 1.25
+hasTrigger = triggerCount >= 1
+
+isReady = totalScore >= readyMin and hasTrigger and (patternStatus == "NEAR_ENTRY" or patternStatus == "BREAKOUT") and nearPivot and notExtended and patScore >= 70 and volScore >= 55 and baseScore >= 55 and momScore >= 48 and confluence and breakoutOK and corrScore >= 65 and inCorrBand
+isForming = not isReady and totalScore >= formingMin and bestScore >= 52 and inCorrBand
+isWatch = not isReady and not isForming and totalScore >= 48 and inCorrBand
+statusText = isReady ? "READY TO ENTRY" : isForming ? "FORMING BASE" : isWatch ? "WATCHLIST" : inCorrBand ? "QUALIFYING..." : "NO SETUP"
+
+// ─── Plots for chart + TradingView Screener ─────────────────────────────────
+plot(totalScore, title="BR Score", display=display.none)
+plot(isReady ? 1 : 0, title="BR Ready Flag", display=display.none)
+plot(isForming ? 1 : 0, title="BR Forming Flag", display=display.none)
+plot(pctFromHigh, title="BR % from 52W High", display=display.none)
+
+plot(showPivot and not na(usePivot) ? usePivot : na, "Pivot", color=color.new(#00897B, 0), style=plot.style_linebr, linewidth=2)
+plot(showPivot and not na(useSupport) ? useSupport : na, "Support", color=color.new(#C62828, 0), style=plot.style_linebr, linewidth=1)
+
+bgcolor(showBg and isReady ? color.new(color.green, 90) : showBg and isForming ? color.new(color.orange, 93) : na)
+
+plotshape(showSignals and isReady and (not isReady[1] or barstate.islast), title="Ready", style=shape.labelup, location=location.belowbar, color=color.new(#2E7D32, 0), text="READY", textcolor=color.white, size=size.small)
+plotshape(showSignals and isForming and not isReady and barstate.islast, title="Forming", style=shape.circle, location=location.belowbar, color=color.new(#EF6C00, 0), size=size.tiny)
+plotshape(showSignals and patternStatus == "BREAKOUT" and inCorrBand and hasTrigger, title="Breakout", style=shape.triangleup, location=location.belowbar, color=color.new(#76FF03, 0), size=size.small)
+
+// ─── Dashboard ──────────────────────────────────────────────────────────────
+var table dash = table.new(f_pos(tablePos), 2, 16, border_width=1)
+f_row(row, k, v, bg) =>
+    table.cell(dash, 0, row, k, text_color=color.white, bgcolor=color.new(#102A43, 10), text_halign=text.align_left, text_size=size.small)
+    table.cell(dash, 1, row, v, text_color=color.white, bgcolor=bg, text_halign=text.align_right, text_size=size.small)
+
+if showTable and barstate.islast
+    stBg = isReady ? color.new(#2E7D32, 25) : isForming ? color.new(#EF6C00, 30) : color.new(#607D8B, 35)
+    f_row(0, "STATUS", statusText, stBg)
+    f_row(1, "SCORE", str.tostring(totalScore, "#.0") + " / 100", stBg)
+    f_row(2, "Pattern", patternLabel, color.new(#1565C0, 40))
+    f_row(3, "Pat Status", patternStatus, color.new(#1565C0, 50))
+    f_row(4, "% vs 52W High", str.tostring(pctFromHigh, "#.0") + "%", color.new(#6A1B9A, 40))
+    f_row(5, "Pivot", na(usePivot) ? "—" : str.tostring(usePivot, "#.##"), color.new(#00897B, 40))
+    f_row(6, "Support", na(useSupport) ? "—" : str.tostring(useSupport, "#.##"), color.new(#C62828, 40))
+    f_row(7, "Dist→Pivot", na(distToPivot) ? "—" : str.tostring(distToPivot, "#.00") + "%", color.new(#00897B, 50))
+    f_row(8, "Correction", str.tostring(corrScore, "#.0"), color.new(#455A64, 45))
+    f_row(9, "Base", str.tostring(baseScore, "#.0"), color.new(#455A64, 45))
+    f_row(10, "PatternQ", str.tostring(patScore, "#.0"), color.new(#455A64, 45))
+    f_row(11, "Volume", str.tostring(volScore, "#.0"), color.new(#455A64, 45))
+    f_row(12, "Momentum", str.tostring(momScore, "#.0"), color.new(#455A64, 45))
+    f_row(13, "SupportZone", str.tostring(zoneComp, "#.0"), color.new(#455A64, 45))
+    f_row(14, "RS proxy", str.tostring(rsScore, "#.0"), color.new(#455A64, 45))
+    rr = not na(usePivot) and not na(useSupport) and usePivot > useSupport ? "Stop " + str.tostring(useSupport, "#.##") + " | Pivot " + str.tostring(usePivot, "#.##") : "See chart"
+    f_row(15, "Risk map", rr, color.new(#102A43, 20))
+
+// ─── Alerts ─────────────────────────────────────────────────────────────────
+readyAlert = isReady and not isReady[1]
+breakAlert = patternStatus == "BREAKOUT" and patternStatus[1] != "BREAKOUT" and inCorrBand and hasTrigger and totalScore >= formingMin
+
+alertcondition(readyAlert, title="Ready To Entry", message="BR Pro: READY TO ENTRY on {{ticker}}. Confirm pivot/zone on chart.")
+alertcondition(breakAlert, title="Pivot Breakout", message="BR Pro: PIVOT BREAKOUT on {{ticker}}. Confirm volume.")
+alertcondition(isForming and not isForming[1], title="Forming Base", message="BR Pro: Forming base on {{ticker}}.")
+
+if alertOnReady and readyAlert
+    alert("BR Pro READY: " + syminfo.ticker + " score " + str.tostring(totalScore, "#.0") + " | " + patternLabel + " | " + patternStatus, alert.freq_once_per_bar_close)
+if alertOnBreak and breakAlert
+    alert("BR Pro BREAKOUT: " + syminfo.ticker + " pivot " + str.tostring(usePivot, "#.##"), alert.freq_once_per_bar_close)
