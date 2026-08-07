@@ -90,8 +90,6 @@ pctFromHigh = high52 > 0 ? (close / high52 - 1.0) * 100.0 : 0.0
 barsSinceHigh = ta.barssince(high >= high52)
 barsSinceHighSafe = nz(barsSinceHigh, 999)
 
-hi30 = ta.highest(high, 30)
-hi40 = ta.highest(high, 40)
 hi20 = ta.highest(high, 20)
 lo20 = ta.lowest(low, 20)
 hi30 = ta.highest(high, 30)
@@ -104,7 +102,7 @@ lo40 = ta.lowest(low, 40)
 lo90 = ta.lowest(low, 90)
 loBase = ta.lowest(low, 62)
 hiBase = ta.highest(high, 62)
-hiLeft = ta.highest(high, 30)
+hiLeft = hi30
 
 rangeRecent = close > 0 ? (hi20 - lo20) / close * 100.0 : 0.0
 rangePrior  = close > 0 ? (hi60 - lo60) / close * 100.0 : rangeRecent
