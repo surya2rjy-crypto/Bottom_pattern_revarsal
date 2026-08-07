@@ -563,10 +563,10 @@ plot(pctFromHigh, title="BR % from 52W High", display=display.none)
 plotshape(showReadyMark and isReady and (not isReady[1] or barstate.islast), title="Ready", style=shape.labelup, location=location.belowbar, color=color.new(#2E7D32, 0), text="READY", textcolor=color.white, size=size.tiny)
 
 // ─── Pattern drawing helpers (optimized: rebuild only on last bar) ──────────
-var line[]     patLines  = array.new_line()
-var label[]    patLabels = array.new_label()
-var box[]      patBoxes  = array.new_box()
-var polyline[] patPoly   = array.new_polyline()
+var line[]          patLines  = array.new_line()
+var label[]         patLabels = array.new_label()
+var box[]           patBoxes  = array.new_box()
+var array<polyline> patPoly   = array.new<polyline>()
 
 f_clear_drawings() =>
     if array.size(patLines) > 0
